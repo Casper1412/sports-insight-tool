@@ -973,19 +973,19 @@ def pdf_report():
 
 
 def show_exports():
-    st.subheader("Export Match Data & Reports")
+    st.subheader("Export match report")
     
     df_events = event_rows()
     csv_data = df_events.to_csv(index=False).encode('utf-8') if not df_events.empty else b""
     excel_data = excel_report()
     pdf_data = pdf_report()
 
-    # Maak een veilige bestandsnaam op basis van team, tegenstander en datum
+    # Create safe filename based on team, opponent, and date
     safe_team = "".join(c for c in st.session_state.team if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     safe_opp = "".join(c for c in st.session_state.opponent if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     match_name = f"{safe_team}_vs_{safe_opp}_{st.session_state.match_date}" if safe_team and safe_opp else "korfball_match"
 
-    # Genereer een ZIP-bestand met de 3 bestanden erin
+    # Generate ZIP bundle containing CSV, Excel and PDF
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         zip_file.writestr(f"{match_name}_data.csv", csv_data)
@@ -994,7 +994,7 @@ def show_exports():
     zip_buffer.seek(0)
 
     st.download_button(
-        label="📦 Download Alle Bestanden (PDF, Excel & CSV)",
+        label="📦 Download All Files (PDF, Excel & CSV)",
         data=zip_buffer,
         file_name=f"{match_name}_export.zip",
         mime="application/zip",
@@ -1034,4 +1034,3 @@ def show():
             show_new_match()
     else:
         show_saved_matches()
-#end of code

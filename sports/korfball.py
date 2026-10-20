@@ -2,6 +2,7 @@ import math
 import io
 import json
 import sqlite3
+import zipfile
 from datetime import datetime, date
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -73,8 +74,6 @@ def count_substitutions():
 
 
 def get_substitution_limit():
-    # App convention: standard mixed competition is limited to eight substitutions.
-    # Confirm the applicable competition rules before using this as an official rule checker.
     return 8 if st.session_state.competition_type == "Mixed - Standard" else None
 
 
@@ -141,7 +140,6 @@ def undo_last_event():
 
 
 def automatic_shot_type(distance):
-    """Distance-based shot category, not a claim about the player's technique."""
     if distance < 2:
         return "Goalzone shot"
     if distance < 5:
@@ -153,7 +151,6 @@ def draw_distance_rings(draw, px, py, scale):
     for radius in DISTANCE_RINGS:
         r = radius * scale
         draw.ellipse((px - r, py - r, px + r, py + r), outline="#B0B0B0", width=2)
-        # Label at the right-hand edge of each ring; keep the text legible.
         tx = px + r + 3
         if tx < FIELD_IMAGE_SIZE - 12:
             draw.text((tx, py - 12), f"{radius} m", fill="#333333")
@@ -691,7 +688,6 @@ def map_point(event):
 
 
 def event_map_image(events, heatmap=False):
-    """Colored event markers, or density of the selected events (not event colors)."""
     image = map_background()
     if heatmap and events:
         density = Image.new("L", image.size, 0)
@@ -700,13 +696,11 @@ def event_map_image(events, heatmap=False):
             x, y = map_point(event)
             painter.ellipse((x-14, y-14, x+14, y+14), fill=95)
         density = density.filter(ImageFilter.GaussianBlur(24))
-        # Make concentration visible; brighter color indicates more events.
         maximum = max(1, density.getextrema()[1])
         density = density.point(lambda v: min(255, int(v * 255 / maximum)))
         colored = ImageOps.colorize(density, black="#FFF7D1", white="#C62828")
         alpha = density.point(lambda v: min(205, int(v * 0.8)))
         image.paste(colored, (0, 0), alpha)
-        # Keep rings and basket legible over the heatmap.
         overlay = ImageDraw.Draw(image)
         px, py = map_point({"x": POST_X, "y": POST_Y})
         draw_distance_rings(overlay, px, py, (FIELD_IMAGE_SIZE - 2 * FIELD_MARGIN) / FIELD_METRES)
@@ -720,7 +714,6 @@ def event_map_image(events, heatmap=False):
 
 
 def shot_map_image(shots, heatmap=False):
-    """Backward-compatible helper for shot-map downloads and reports."""
     return event_map_image(shots, heatmap=heatmap)
 
 
@@ -982,41 +975,37 @@ def pdf_report():
 def show_exports():
     st.subheader("Export Match Data & Reports")
     
-    # Generate CSV data from event rows so it can be re-imported later
     df_events = event_rows()
     csv_data = df_events.to_csv(index=False).encode('utf-8') if not df_events.empty else b""
+    excel_data = excel_report()
+    pdf_data = pdf_report()
 
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.download_button(
-            "Download CSV (Raw Data)",
-            data=csv_data,
-            file_name="korfball_match_data.csv",
-            mime="text/csv",
-            disabled=df_events.empty
-        )
-    with col2:
-        st.download_button(
-            "Download Excel Report", 
-            data=excel_report(), 
-            file_name="korfball_match.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    with col3:
-        st.download_button(
-            "Download PDF Report", 
-            data=pdf_report(), 
-            file_name="korfball_match.pdf", 
-            mime="application/pdf"
-        )
+    # Maak een veilige bestandsnaam op basis van team, tegenstander en datum
+    safe_team = "".join(c for c in st.session_state.team if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    safe_opp = "".join(c for c in st.session_state.opponent if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    match_name = f"{safe_team}_vs_{safe_opp}_{st.session_state.match_date}" if safe_team and safe_opp else "korfball_match"
+
+    # Genereer een ZIP-bestand met de 3 bestanden erin
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr(f"{match_name}_data.csv", csv_data)
+        zip_file.writestr(f"{match_name}_report.xlsx", excel_data)
+        zip_file.writestr(f"{match_name}_report.pdf", pdf_data)
+    zip_buffer.seek(0)
+
+    st.download_button(
+        label="📦 Download Alle Bestanden (PDF, Excel & CSV)",
+        data=zip_buffer,
+        file_name=f"{match_name}_export.zip",
+        mime="application/zip",
+        use_container_width=True
+    )
 
 
 def show_saved_matches():
     st.subheader("Load saved korfball matches")
     st.caption("Upload a previously exported CSV or Excel match file to continue your analysis.")
     
-    # File uploader to load saved match files
     uploaded_file = st.file_uploader("Choose match file", type=["csv", "xlsx"])
     
     if uploaded_file is not None:

@@ -2,6 +2,7 @@ import math
 import io
 import json
 import sqlite3
+import zipfile
 from datetime import datetime, date
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -73,8 +74,6 @@ def count_substitutions():
 
 
 def get_substitution_limit():
-    # App convention: standard mixed competition is limited to eight substitutions.
-    # Confirm the applicable competition rules before using this as an official rule checker.
     return 8 if st.session_state.competition_type == "Mixed - Standard" else None
 
 
@@ -141,7 +140,6 @@ def undo_last_event():
 
 
 def automatic_shot_type(distance):
-    """Distance-based shot category, not a claim about the player's technique."""
     if distance < 2:
         return "Goalzone shot"
     if distance < 5:
@@ -153,7 +151,6 @@ def draw_distance_rings(draw, px, py, scale):
     for radius in DISTANCE_RINGS:
         r = radius * scale
         draw.ellipse((px - r, py - r, px + r, py + r), outline="#B0B0B0", width=2)
-        # Label at the right-hand edge of each ring; keep the text legible.
         tx = px + r + 3
         if tx < FIELD_IMAGE_SIZE - 12:
             draw.text((tx, py - 12), f"{radius} m", fill="#333333")
@@ -691,7 +688,6 @@ def map_point(event):
 
 
 def event_map_image(events, heatmap=False):
-    """Colored event markers, or density of the selected events (not event colors)."""
     image = map_background()
     if heatmap and events:
         density = Image.new("L", image.size, 0)
@@ -700,13 +696,11 @@ def event_map_image(events, heatmap=False):
             x, y = map_point(event)
             painter.ellipse((x-14, y-14, x+14, y+14), fill=95)
         density = density.filter(ImageFilter.GaussianBlur(24))
-        # Make concentration visible; brighter color indicates more events.
         maximum = max(1, density.getextrema()[1])
         density = density.point(lambda v: min(255, int(v * 255 / maximum)))
         colored = ImageOps.colorize(density, black="#FFF7D1", white="#C62828")
         alpha = density.point(lambda v: min(205, int(v * 0.8)))
         image.paste(colored, (0, 0), alpha)
-        # Keep rings and basket legible over the heatmap.
         overlay = ImageDraw.Draw(image)
         px, py = map_point({"x": POST_X, "y": POST_Y})
         draw_distance_rings(overlay, px, py, (FIELD_IMAGE_SIZE - 2 * FIELD_MARGIN) / FIELD_METRES)
@@ -720,7 +714,6 @@ def event_map_image(events, heatmap=False):
 
 
 def shot_map_image(shots, heatmap=False):
-    """Backward-compatible helper for shot-map downloads and reports."""
     return event_map_image(shots, heatmap=heatmap)
 
 
@@ -865,38 +858,23 @@ def show_save_controls():
         st.session_state.match_started = False
         st.rerun()
 
-
-def show_saved_matches():
-    st.subheader("Load saved korfball matches")
-    st.caption("Upload a previously exported CSV or Excel match file to continue your analysis.")
-    # File uploader to load saved match files
-    uploaded_file = st.file_uploader("Choose match file", type=["csv", "xlsx"])
-    
-    if uploaded_file is not None:
-        try:
-            if uploaded_file.name.endswith('.csv'):
-                st.session_state.events_df = pd.read_csv(uploaded_file)
-            else:
-                st.session_state.events_df = pd.read_excel(uploaded_file)
-                
-            st.success("Match data successfully loaded into memory!")
-        except Exception as e:
-            st.error(f"Could not read the match file: {e}")
-            
-    st.caption("Loading a file replaces the current active session data.")
-
-
-# ==================================================
-# EXCEL AND PDF REPORTS
-# ==================================================
+## Save as Excel, PDF, or CSV report. And upload as Excel or CSV.
 
 def event_rows():
     rows = []
     for e in st.session_state.match_events:
-        rows.append({"Time": format_clock(e.get("time_seconds", 0)), "Event": describe_event(e),
-                     "Type": e["type"], "Team": e.get("team", ""), "Player": e.get("player", ""),
-                     "Result": e.get("result", ""), "Shot type": e.get("shot_type", ""),
-                     "X (m)": e.get("x", ""), "Y (m)": e.get("y", ""), "Distance (m)": e.get("distance", "")})
+        rows.append({
+            "Time": format_clock(e.get("time_seconds", 0)), 
+            "Event": describe_event(e),
+            "Type": e["type"], 
+            "Team": e.get("team", ""), 
+            "Player": e.get("player", ""),
+            "Result": e.get("result", ""), 
+            "Shot type": e.get("shot_type", ""),
+            "X (m)": e.get("x", ""), 
+            "Y (m)": e.get("y", ""), 
+            "Distance (m)": e.get("distance", "")
+        })
     return pd.DataFrame(rows)
 
 
@@ -904,14 +882,28 @@ def excel_report():
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
-    info = [("Team", st.session_state.team), ("Opponent", st.session_state.opponent),
-            ("Date", str(st.session_state.match_date)), ("Competition", st.session_state.competition_type),
-            ("Score", f"{st.session_state.our_score} - {st.session_state.opponent_score}"),
-            ("Duration", format_clock(clock_seconds())), ("Substitutions", count_substitutions())]
+    
+    score_str = f"{st.session_state.our_score} - {st.session_state.opponent_score}"
+    
+    info = [
+        ("Team", st.session_state.team), 
+        ("Opponent", st.session_state.opponent),
+        ("Date", str(st.session_state.match_date)), 
+        ("Competition", st.session_state.competition_type),
+        ("Score", score_str),
+        ("Duration", format_clock(clock_seconds())), 
+        ("Substitutions", count_substitutions())
+    ]
     for row in info:
         ws.append(row)
-    tables = {"Player statistics": detailed_stats(), "Playing time": playing_time_and_lineups()[0],
-              "Lineup changes": playing_time_and_lineups()[1], "Events": event_rows()}
+        
+    tables = {
+        "Player statistics": detailed_stats(), 
+        "Playing time": playing_time_and_lineups()[0],
+        "Lineup changes": playing_time_and_lineups()[1], 
+        "Events": event_rows()
+    }
+    
     for title, frame in tables.items():
         sheet = wb.create_sheet(title)
         if frame.empty and len(frame.columns) == 0:
@@ -926,6 +918,7 @@ def excel_report():
         for column in sheet.columns:
             letter = column[0].column_letter
             sheet.column_dimensions[letter].width = min(45, max(14, max(len(str(c.value or "")) for c in column) + 2))
+            
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
@@ -936,24 +929,32 @@ def pdf_report():
     doc = SimpleDocTemplate(out, pagesize=A4, rightMargin=35, leftMargin=35, topMargin=35, bottomMargin=35)
     styles = getSampleStyleSheet()
     elements = [Paragraph("Korfball match report", styles["Title"]), Spacer(1, 12)]
-    details = [f"{st.session_state.team} vs {st.session_state.opponent}",
-               f"Date: {st.session_state.match_date}",
-               f"Score: {st.session_state.our_score} - {st.session_state.opponent_score}",
-               f"Match time: {format_clock(clock_seconds())}",
-               f"Substitutions: {count_substitutions()}"]
+    
+    score_str = f"{st.session_state.our_score} - {st.session_state.opponent_score}"
+    
+    details = [
+        f"{st.session_state.team} vs {st.session_state.opponent}",
+        f"Date: {st.session_state.match_date}",
+        f"Score: {score_str}",
+        f"Match time: {format_clock(clock_seconds())}",
+        f"Substitutions: {count_substitutions()}"
+    ]
     for detail in details:
         elements.append(Paragraph(escape(detail), styles["Normal"]))
+        
     elements.append(Spacer(1, 16))
     elements.append(Paragraph("Player statistics", styles["Heading2"]))
     frame = detailed_stats()[["Player", "Shots", "Goals", "Shot %", "Average distance (m)"]]
     data = [list(frame.columns)] + [list(row) for row in frame.itertuples(index=False, name=None)]
     data = [[str(x) for x in row] for row in data]
     table = Table(data, repeatRows=1, colWidths=[150, 65, 65, 70, 120])
-    table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#23415D")),
-                               ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-                               ("GRID", (0,0), (-1,-1), 0.3, colors.grey),
-                               ("FONTSIZE", (0,0), (-1,-1), 8),
-                               ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#23415D")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("GRID", (0,0), (-1,-1), 0.3, colors.grey),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6)
+    ]))
     elements.append(table)
     elements.append(Spacer(1, 16))
     elements.append(Paragraph("Our shot map", styles["Heading2"]))
@@ -973,12 +974,53 @@ def pdf_report():
 
 def show_exports():
     st.subheader("Export match report")
-    left, right = st.columns(2)
-    with left:
-        st.download_button("Download Excel", data=excel_report(), file_name="korfball_match.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    with right:
-        st.download_button("Download PDF", data=pdf_report(), file_name="korfball_match.pdf", mime="application/pdf")
+    
+    df_events = event_rows()
+    csv_data = df_events.to_csv(index=False).encode('utf-8') if not df_events.empty else b""
+    excel_data = excel_report()
+    pdf_data = pdf_report()
+
+    # Create safe filename based on team, opponent, and date
+    safe_team = "".join(c for c in st.session_state.team if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    safe_opp = "".join(c for c in st.session_state.opponent if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    match_name = f"{safe_team}_vs_{safe_opp}_{st.session_state.match_date}" if safe_team and safe_opp else "korfball_match"
+
+    # Generate ZIP bundle containing CSV, Excel and PDF
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr(f"{match_name}_data.csv", csv_data)
+        zip_file.writestr(f"{match_name}_report.xlsx", excel_data)
+        zip_file.writestr(f"{match_name}_report.pdf", pdf_data)
+    zip_buffer.seek(0)
+
+    st.download_button(
+        label="📦 Download All Files (PDF, Excel & CSV)",
+        data=zip_buffer,
+        file_name=f"{match_name}_export.zip",
+        mime="application/zip",
+        use_container_width=True
+    )
+
+
+def show_saved_matches():
+    st.subheader("Load saved korfball matches")
+    st.caption("Upload a previously exported CSV or Excel match file to continue your analysis.")
+    
+    uploaded_file = st.file_uploader("Choose match file", type=["csv", "xlsx"])
+    
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                st.session_state.events_df = pd.read_csv(uploaded_file)
+            else:
+                st.session_state.events_df = pd.read_excel(uploaded_file)
+                
+            st.success("Match data successfully loaded into memory!")
+        except Exception as e:
+            st.error(f"Could not read the match file: {e}")
+            
+    st.caption("Loading a file replaces the current active session data.")
+
 
 def show():
     initialize_state()

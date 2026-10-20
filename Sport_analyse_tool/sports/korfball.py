@@ -44,7 +44,7 @@ def initialize_state():
         if key not in st.session_state:
             st.session_state[key] = value
     if "events_df" not in st.session_state:
-    st.session_state.events_df = pd.DataFrame(columns=["Player", "Action", "X", "Y", "Half"])
+        st.session_state.events_df = pd.DataFrame(columns=["Player", "Action", "X", "Y", "Half"])
 
 
 def count_genders(players, genders):

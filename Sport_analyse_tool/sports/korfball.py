@@ -988,3 +988,25 @@ def show():
             show_new_match()
     else:
         show_saved_matches()
+
+# Ensure session_state is initialized for event logs
+if "events_df" not in st.session_state:
+    st.session_state.events_df = pd.DataFrame(columns=["Player", "Action", "X", "Y", "Half"])
+
+# Add a demo mode section in the sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("Demo Mode")
+
+if st.sidebar.button("Load Sample Match"):
+    # Mock data with sample coordinates, actions, and players
+    demo_data = {
+        "Player": ["John", "Sophie", "Dan", "Sophie", "Lisa", "John"],
+        "Action": ["Goal", "Shot (missed)", "Pass", "Goal", "Foul", "Shot (missed)"],
+        "X": [45, 20, 60, 50, 30, 75],
+        "Y": [50, 30, 40, 55, 20, 65],
+        "Half": ["1st Half", "1st Half", "1st Half", "2nd Half", "2nd Half", "2nd Half"]
+    }
+    
+    # Load demo data directly into the app's session state
+    st.session_state.events_df = pd.DataFrame(demo_data)
+    st.sidebar.success("Sample match loaded successfully! Check out the heatmaps and shot maps.")

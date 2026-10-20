@@ -1,0 +1,6 @@
+streamlit
+pandas
+pillow
+streamlit-image-coordinates
+openpyxl
+reportlab

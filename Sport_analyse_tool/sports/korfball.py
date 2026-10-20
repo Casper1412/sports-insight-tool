@@ -44,7 +44,7 @@ def initialize_state():
         if key not in st.session_state:
             st.session_state[key] = value
     if "events_df" not in st.session_state:
-        st.session_state.events_df = pd.DataFrame(columns=["Player", "Action", "X", "Y", "Half"])
+    st.session_state.events_df = pd.DataFrame(columns=["Player", "Action", "X", "Y", "Half"])
 
 
 def count_genders(players, genders):
@@ -867,21 +867,23 @@ def show_save_controls():
 
 
 def show_saved_matches():
-    st.subheader("Saved korfball matches")
-    try:
-        with db_connection() as conn:
-            rows = conn.execute("SELECT id, match_date, team, opponent, saved_at FROM matches ORDER BY id DESC").fetchall()
-    except (sqlite3.Error, OSError) as exc:
-        st.error(f"Could not open saved matches: {exc}")
-        return
-    if not rows:
-        st.info("No saved matches yet. Save a match to see it here.")
-        return
-    options = {f"#{i} | {day} | {team} vs {opponent} | saved {saved[:16]}": i for i, day, team, opponent, saved in rows}
-    choice = st.selectbox("Select saved match", list(options))
-    if st.button("Open selected match"):
-        load_match(options[choice])
-    st.caption("Opening a match replaces the current in-memory match. Save current changes first.")
+    st.subheader("Load saved korfball matches")
+    st.caption("Upload a previously exported CSV or Excel match file to continue your analysis.")
+    # File uploader to load saved match files
+    uploaded_file = st.file_uploader("Choose match file", type=["csv", "xlsx"])
+    
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                st.session_state.events_df = pd.read_csv(uploaded_file)
+            else:
+                st.session_state.events_df = pd.read_excel(uploaded_file)
+                
+            st.success("Match data successfully loaded into memory!")
+        except Exception as e:
+            st.error(f"Could not read the match file: {e}")
+            
+    st.caption("Loading a file replaces the current active session data.")
 
 
 # ==================================================
